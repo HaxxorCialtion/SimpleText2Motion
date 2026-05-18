@@ -1,0 +1,10 @@
+A person walks forward
+A person jumps
+A person waves
+A person sits down
+A person turns left and walks
+A person runs to the door
+A person picks up an apple
+A person throws a ball
+A person dances briefly
+A person stretches

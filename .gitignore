@@ -1,0 +1,79 @@
+# ============================================================================
+# SimpleT2M .gitignore
+# ----------------------------------------------------------------------------
+# Large binary assets (models, vendored runtimes, prebuilt libs) are NOT
+# committed to git. They are distributed via GitHub Release assets / Hugging
+# Face. Keep the source repo small and cloneable.
+# ============================================================================
+
+# ---- Models (GGUF ~4GB, ONNX ~200MB) — ship via HF / Release -------------
+models/
+*.gguf
+*.onnx
+*.npz
+# (allow the small config that documents expected model layout, if any)
+!models/SimpleT2M/config.json
+
+# ---- Vendored ONNX Runtime (5-12MB each, per-platform) -------------------
+# Shipped as Release assets. CMake expects these extracted at build time.
+third_party/onnxruntime-osx-arm64-*/
+third_party/onnxruntime-linux-x64-*/
+third_party/onnxruntime-win-x64-*/
+third_party/*.tgz
+third_party/*.zip
+
+# ---- Build directories ---------------------------------------------------
+build/
+build-*/
+cmake-build-*/
+llama.cpp/build_mac/
+llama.cpp/build_linux/
+llama.cpp/build_win/
+llama.cpp/build/
+
+# ---- Compiled binaries / libs --------------------------------------------
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+# Built executables that live at known paths
+/llama.cpp/fused_server
+/llama.cpp/fused_server.exe
+# NOTE: do NOT ignore source: fused_server.cpp / *.h are tracked.
+
+# ---- Runtime output / logs -----------------------------------------------
+out/
+logs/
+*.log
+*.pid
+motion.bin
+motion.npy
+*.vrma
+!assets/**/*.vrma
+
+# ---- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# ---- Editor / OS ---------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# ---- Backups created during the port -------------------------------------
+CMakeLists.txt.mac.bak
+*.bak
+*.orig
