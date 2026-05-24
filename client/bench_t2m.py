@@ -12,8 +12,8 @@ reports mean/p50/p95/min/max for each stage:
   dit_rest_avg  average of steps 1..3
 
 Usage:
-  python bench_t2m.py                          # 5 prompts × 3 warmup + 20 timed
-  python bench_t2m.py --n 50 --warmup 5
+  python client/bench_t2m.py                          # 5 prompts × 3 warmup + 20 timed
+  python client/bench_t2m.py --n 50 --warmup 5
   python bench_t2m.py --prompts prompts.txt
   python bench_t2m.py --duration 3.0 --seed 42 --csv bench.csv
 """

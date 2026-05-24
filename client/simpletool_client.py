@@ -13,7 +13,7 @@ The model is expected to emit, per head:
   head 2..7 (argN) : "<argN>value</argN>" or "<argN><|null|></argN>"
 
 Usage:
-  python test_simpletool.py                  # run 4 default scenarios
+  python client/simpletool_client.py                  # run 4 default scenarios
   python test_simpletool_v2.py --query "..."    # one custom query
   python test_simpletool_v2.py --cache-bench    # measure HIT vs RESET savings
   python test_simpletool_v2.py --heads function,arg1   # head_mask filter

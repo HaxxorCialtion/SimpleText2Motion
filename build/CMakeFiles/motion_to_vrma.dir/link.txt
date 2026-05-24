@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/motion_to_vrma.dir/link.d CMakeFiles/motion_to_vrma.dir/cpp/motion_to_vrma.cpp.o -o motion_to_vrma

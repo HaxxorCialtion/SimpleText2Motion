@@ -1,7 +1,7 @@
 #!/bin/bash
 # start_servers.sh
 #
-# Start both backend servers for SimpleLove on macOS:
+# Start both backend servers for SimpleLove. Works on Linux and macOS.
 #   - fused_server (LLM hidden + simpletool) on 127.0.0.1:8421 / :8422
 #   - t2m_infer    (motion service)          on 127.0.0.1:8423
 #
@@ -15,7 +15,7 @@
 #   ./scripts/start_servers.sh                  # normal start
 #   ./scripts/start_servers.sh --tail           # also tail t2m_infer log
 #   ./scripts/start_servers.sh --skip-fused     # only t2m_infer (debugging)
-#   ./scripts/start_servers.sh --skip-t2m      # only fused_server
+#   ./scripts/start_servers.sh --skip-t2m       # only fused_server
 #
 # Override paths via env vars:
 #   FUSED_BIN=./llama.cpp/fused_server
@@ -31,9 +31,19 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$ROOT"
 
+# ---------- Platform detection ---------------------------------------------
+# The llama.cpp shared libs live in a different build dir per platform.
+# (macOS: build_mac/bin, Linux: build/bin). Used both to locate the libs
+# for the LD path fallback and to keep this script single-source.
+case "$(uname -s)" in
+    Darwin) PLATFORM="macos"; LLAMA_BUILD_DIR="build_mac" ;;
+    Linux)  PLATFORM="linux"; LLAMA_BUILD_DIR="build" ;;
+    *)      PLATFORM="unknown"; LLAMA_BUILD_DIR="build" ;;
+esac
+
 # ---------- Config (overridable via env) -----------------------------------
 FUSED_BIN="${FUSED_BIN:-./llama.cpp/fused_server}"
-FUSED_MODEL="${FUSED_MODEL:-./models/qwen3-4b-q8_0.gguf}"
+FUSED_MODEL="${FUSED_MODEL:-./models/qwen3-4b-v2-trim6-q4_k_m.gguf}"
 FUSED_PORT_HIDDEN="${FUSED_PORT_HIDDEN:-8421}"
 FUSED_PORT_SIMPLETOOL="${FUSED_PORT_SIMPLETOOL:-8422}"
 FUSED_LAYER="${FUSED_LAYER:-5}"
@@ -41,6 +51,15 @@ FUSED_LAYER="${FUSED_LAYER:-5}"
 T2M_BIN="${T2M_BIN:-./build/t2m_infer}"
 T2M_ONNX_DIR="${T2M_ONNX_DIR:-./models/SimpleT2M}"
 T2M_PORT="${T2M_PORT:-8423}"
+
+# Vendored ONNX Runtime dir (for LD_LIBRARY_PATH fallback so t2m_infer can
+# always find libonnxruntime even if the binary is moved away from its
+# build-time rpath). Platform-selected.
+if [[ "$PLATFORM" == "macos" ]]; then
+    ORT_LIB_DIR="${ORT_LIB_DIR:-./third_party/onnxruntime-osx-arm64-1.18.1/lib}"
+else
+    ORT_LIB_DIR="${ORT_LIB_DIR:-./third_party/onnxruntime-linux-x64-1.18.1/lib}"
+fi
 
 LOG_DIR="${LOG_DIR:-./logs}"
 
@@ -65,31 +84,21 @@ mkdir -p "$LOG_DIR"
 # ---------- Pretty print helpers -------------------------------------------
 c_reset=$'\033[0m'; c_b=$'\033[1m'; c_g=$'\033[32m'; c_r=$'\033[31m'; c_y=$'\033[33m'; c_d=$'\033[2m'
 log()  { printf "%s[start_servers]%s %s\n" "$c_b" "$c_reset" "$*"; }
-ok()   { printf "%s[start_servers]%s %s✓%s %s\n" "$c_b" "$c_reset" "$c_g" "$c_reset" "$*"; }
-err()  { printf "%s[start_servers]%s %s✗%s %s\n" "$c_b" "$c_reset" "$c_r" "$c_reset" "$*" >&2; }
+ok()   { printf "%s[start_servers]%s %s\xe2\x9c\x93%s %s\n" "$c_b" "$c_reset" "$c_g" "$c_reset" "$*"; }
+err()  { printf "%s[start_servers]%s %s\xe2\x9c\x97%s %s\n" "$c_b" "$c_reset" "$c_r" "$c_reset" "$*" >&2; }
 warn() { printf "%s[start_servers]%s %s!%s %s\n" "$c_b" "$c_reset" "$c_y" "$c_reset" "$*"; }
 dim()  { printf "%s%s%s\n" "$c_d" "$*" "$c_reset"; }
 
 # ---------- TCP port probe (bash builtin, no nc/lsof dependency) -----------
 # /dev/tcp/HOST/PORT is a magic bash device; opening it tries connect.
+# Works on both Linux and macOS bash (NOT dash/sh — run with bash).
 port_open() {  # returns 0 if something is listening
     local port="$1"
     (echo >"/dev/tcp/127.0.0.1/$port") 2>/dev/null
 }
 
-wait_for_port() {  # wait_for_port <port> <name> <timeout_sec>
-    local port="$1" name="$2" timeout="$3"
-    local elapsed=0
-    while [[ $elapsed -lt $timeout ]]; do
-        if port_open "$port"; then return 0; fi
-        sleep 0.2
-        elapsed=$((elapsed + 1))   # 0.2s ticks; treat as "0.2 unit"
-        # we want real seconds; recompute below
-    done
-    return 1
-}
-
-# More precise: count by 0.2s, give up after ceil(timeout * 5) ticks
+# wait_for_port <port> <name> <timeout_sec>
+# Polls every 0.2s, gives up after timeout_sec * 5 ticks.
 wait_for_port() {
     local port="$1" name="$2" timeout_sec="$3"
     local ticks=$(( timeout_sec * 5 ))
@@ -116,7 +125,7 @@ preflight() {
         fi
         if port_open "$FUSED_PORT_HIDDEN"; then
             err "port $FUSED_PORT_HIDDEN already in use (hidden)"
-            err "  → run scripts/stop_servers.sh first, or kill the offender"
+            err "  -> run scripts/stop_servers.sh first, or kill the offender"
             fail=1
         fi
         if port_open "$FUSED_PORT_SIMPLETOOL"; then
@@ -199,15 +208,17 @@ start_fused() {
     dim "  ports: hidden=$FUSED_PORT_HIDDEN, simpletool=$FUSED_PORT_SIMPLETOOL"
     dim "  log:   $LOG_DIR/fused_server.log"
 
-    # fused_server expects to be launched from llama.cpp/ for its RPATH
-    # (@loader_path/build_mac/bin). We chdir into its parent dir so the
-    # relative model path keeps working.
+    # fused_server links the llama.cpp shared libs via an rpath relative to
+    # the binary ($ORIGIN/build/bin on Linux, @loader_path/build_mac/bin on
+    # macOS). We chdir into the binary's own dir before launching so that
+    # any relative paths it resolves stay correct; the model path is passed
+    # absolute regardless.
     local fused_dir
     fused_dir="$( cd "$(dirname "$FUSED_BIN")" && pwd )"
     local fused_exe
     fused_exe="$(basename "$FUSED_BIN")"
 
-    # Compute model path relative to fused_dir (or absolute)
+    # Absolute model path (so it resolves no matter what cwd we launch from)
     local model_abs
     model_abs="$( cd "$(dirname "$FUSED_MODEL")" && pwd )/$(basename "$FUSED_MODEL")"
 
@@ -222,7 +233,8 @@ start_fused() {
     echo "$FUSED_PID" > "$LOG_DIR/fused_server.pid"
     dim "  pid:   $FUSED_PID"
 
-    # Wait for hidden port. Cold load of Qwen3-4B q8 GGUF + warmup ~ 3-8s.
+    # Wait for hidden port. Cold load of Qwen3-4B q8 GGUF + warmup ~ 3-10s
+    # (GGUF load alone is ~7s on H100; CUDA kernel warmup adds a little).
     if wait_for_port "$FUSED_PORT_HIDDEN" "fused_server" 60; then
         ok "fused_server ready (hidden:$FUSED_PORT_HIDDEN, simpletool:$FUSED_PORT_SIMPLETOOL)"
     else
@@ -248,17 +260,30 @@ start_t2m() {
     dim "  port:     $T2M_PORT"
     dim "  log:      $LOG_DIR/t2m_infer.log"
 
-    "$T2M_BIN" --server \
-        --server-port "$T2M_PORT" \
-        --onnx-dir "$T2M_ONNX_DIR" \
-        --host 127.0.0.1 \
-        --port "$FUSED_PORT_HIDDEN" \
-        >> "$LOG_DIR/t2m_infer.log" 2>&1 &
+    # LD_LIBRARY_PATH fallback: the binary already has an rpath to the
+    # vendored ORT, but if it's ever moved this keeps libonnxruntime findable.
+    # Harmless when the rpath already resolves. (macOS uses DYLD_* instead,
+    # but the build-time rpath there covers it, so we only set LD_* on Linux.)
+    local ort_abs=""
+    if [[ -d "$ORT_LIB_DIR" ]]; then
+        ort_abs="$( cd "$ORT_LIB_DIR" && pwd )"
+    fi
+
+    (
+        if [[ "$PLATFORM" == "linux" && -n "$ort_abs" ]]; then
+            export LD_LIBRARY_PATH="${ort_abs}:${LD_LIBRARY_PATH:-}"
+        fi
+        exec "$T2M_BIN" --server \
+            --server-port "$T2M_PORT" \
+            --onnx-dir "$T2M_ONNX_DIR" \
+            --host 127.0.0.1 \
+            --port "$FUSED_PORT_HIDDEN"
+    ) >> "$LOG_DIR/t2m_infer.log" 2>&1 &
     T2M_PID=$!
     echo "$T2M_PID" > "$LOG_DIR/t2m_infer.pid"
     dim "  pid:      $T2M_PID"
 
-    # ONNX load + dummy warmup ~ 1-3s on Apple Silicon
+    # ONNX session load + dummy warmup ~ 1-3s.
     if wait_for_port "$T2M_PORT" "t2m_infer" 30; then
         ok "t2m_infer ready (port $T2M_PORT)"
     else
@@ -280,7 +305,8 @@ monitor_loop() {
     log "all servers ready. press Ctrl-C to stop."
     log ""
     log "to test:"
-    dim "  python t2m_client.py \"A person walks forward\""
+    dim "  python client/t2m_client.py \"A person walks forward\""
+    dim "  python client/bench_t2m.py"
     log ""
     log "to follow logs in another terminal:"
     dim "  tail -f $LOG_DIR/t2m_infer.log"
@@ -315,6 +341,7 @@ monitor_loop() {
 }
 
 # ---------- Main -----------------------------------------------------------
+log "platform: $PLATFORM (llama build dir: $LLAMA_BUILD_DIR)"
 preflight
 [[ $SKIP_FUSED -eq 0 ]] && start_fused
 [[ $SKIP_T2M -eq 0 ]] && start_t2m

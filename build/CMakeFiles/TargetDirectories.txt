@@ -1,0 +1,8 @@
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/t2m_infer.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/motion_to_vrma.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/edit_cache.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/rebuild_cache.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/list_install_components.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/install.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/install/local.dir
+/inspire/hdd/project/advanced-machine-learning/shixiaoxin-253107030017/global_user/sxx/SimpleT2M_Mac_Release/build/CMakeFiles/install/strip.dir

@@ -171,7 +171,7 @@ prompt is generated → t2m produces `(T, 135)` → `motion_to_vrma` converts to
 
 ```bash
 python client/demo_client.py                                  # interactive REPL
-python client/demo_client.py "Walk over to the chair slowly."
+python client/demo_client.py "A person walks forward."
 python client/demo_client.py --no-simpletool "Wave."          # skip LLM step
 ```
 
