@@ -1,0 +1,10 @@
+/models/
+/out/
+/logs/
+__pycache__/
+*.pyc
+.DS_Store
+/env_sft/
+/venv/
+/build/
+/third_party/

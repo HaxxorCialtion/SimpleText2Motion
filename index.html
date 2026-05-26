@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>SimpleLove Streaming Demo</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: monospace; color: #eee; }
+  #info {
+    position: absolute; top: 10px; left: 10px; z-index: 10;
+    background: rgba(0,0,0,0.78); padding: 12px 16px; border-radius: 6px;
+    font-size: 12px; line-height: 1.6; max-width: 540px;
+  }
+  #info button {
+    margin: 2px 4px 2px 0; padding: 5px 10px; background: #444; color: #fff;
+    border: 1px solid #666; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 11px;
+  }
+  #info button:hover { background: #555; }
+  #info input[type=number] { width: 50px; background: #222; color: #fff; border: 1px solid #555; padding: 2px 4px; }
+  #info label { user-select: none; }
+  #status { color: #8f8; margin-top: 4px; min-height: 1.2em; word-break: break-all; font-size: 11px; }
+  hr { border: none; border-top: 1px solid #444; margin: 6px 0; }
+  .tag { color: #8cf; }
+  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .legend { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 3px; border: 1px solid #333; }
+
+  #timeline { position: relative; margin-top: 8px; height: 38px; background: #111; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
+  #timeline canvas { display: block; width: 100%; height: 100%; }
+  #timelineLabel { font-size: 10px; color: #aaa; margin-top: 2px; display: flex; justify-content: space-between; }
+
+  #promptBar {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 8px; align-items: center;
+    background: rgba(0,0,0,0.78); padding: 10px 14px; border-radius: 8px;
+    border: 1px solid #444; width: 640px; max-width: 92vw;
+  }
+  #promptInput {
+    flex: 1; background: #222; color: #fff; border: 1px solid #555;
+    border-radius: 4px; padding: 8px 10px; font-family: monospace; font-size: 13px; outline: none;
+  }
+  #promptInput:focus { border-color: #6af; }
+  #promptInput:disabled { opacity: 0.5; }
+  #promptDuration {
+    width: 50px; background: #222; color: #fff; border: 1px solid #555;
+    border-radius: 4px; padding: 8px 6px; font-family: monospace; font-size: 13px;
+  }
+  #promptSend {
+    background: #36c; color: #fff; border: 1px solid #58e;
+    padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 13px;
+  }
+  #promptSend:hover { background: #47d; }
+  #promptSend:disabled { background: #555; border-color: #666; cursor: not-allowed; }
+  #promptStatus { font-size: 11px; color: #aaa; min-width: 90px; }
+  #promptStatus.err { color: #f88; }
+  #promptStatus.ok  { color: #8f8; }
+
+  #dropOverlay {
+    position: fixed; inset: 0; background: rgba(60, 130, 220, 0.25);
+    border: 4px dashed #6af; box-sizing: border-box;
+    display: none; align-items: center; justify-content: center;
+    font-size: 24px; color: #fff; pointer-events: none; z-index: 100;
+  }
+  #dropOverlay.active { display: flex; }
+</style>
+</head>
+<body>
+<div id="dropOverlay">Drop .vrma to schedule &nbsp;·&nbsp; .vrm to replace model</div>
+
+<div id="info">
+  <div><b>VRMA Streaming Engine <span class="tag">[unified schedule]</span></b></div>
+  <div class="row">
+    <label>N: <input id="lookahead" type="number" value="90" step="1" min="20"> f</label>
+    <label>m: <input id="transFrames" type="number" value="15" step="1" min="1"> f</label>
+    <label>d: <input id="delayFrames" type="number" value="3" step="1" min="0"> f</label>
+    <label><input id="reanchor" type="checkbox" checked> Re-anchor</label>
+  </div>
+  <hr>
+  <div class="row">
+    <button id="schedule0">0.vrma</button>
+    <button id="schedule1">1.vrma</button>
+    <button id="scheduleSeq">0 then 1</button>
+    <button id="scheduleIdle">Idle</button>
+    <button id="resetPos" style="background:#633">⟲ Reset</button>
+  </div>
+  <div style="font-size:10px;color:#aaa;margin-top:4px">💡 Drag-drop .vrma to schedule, .vrm to replace the character.</div>
+  <div id="status">Loading...</div>
+  <hr>
+  <div style="font-size:11px;color:#ccc">
+    <span class="legend" style="background:#3a6"></span>idle
+    <span class="legend" style="background:#4af"></span>action
+    <span class="legend" style="background:#fb4"></span>transition
+    <span class="legend" style="background:rgba(255,255,255,0.2);border-color:#888"></span>protected
+  </div>
+  <div id="timeline"><canvas id="timelineCanvas"></canvas></div>
+  <div id="timelineLabel">
+    <span id="tlLeft">t=0</span>
+    <span id="tlMid"></span>
+    <span id="tlRight">t+N</span>
+  </div>
+  <div id="composition" style="font-size:10px;color:#9c9;margin-top:4px;word-break:break-all;line-height:1.4"></div>
+</div>
+
+<div id="promptBar">
+  <input id="promptInput" type="text" placeholder='e.g. "A person waves their right hand."' autocomplete="off" />
+  <input id="promptDuration" type="number" value="3" step="0.5" min="1" max="10" title="duration (s)" />
+  <button id="promptSend">Generate</button>
+  <span id="promptStatus">idle</span>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.4/lib/three-vrm.module.min.js",
+    "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@3.1.4/lib/three-vrm-animation.module.min.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
+
+/* ========== CONFIG ========== */
+const DEFAULT_CONFIG = {
+  fps: 30,
+  lookaheadFrames: 90,
+  transitionFrames: 15,
+  scheduleDelayFrames: 3,
+  reanchorHips: true,
+};
+
+const HUMANOID_BONES = [
+  'hips','spine','chest','upperChest','neck','head',
+  'leftShoulder','leftUpperArm','leftLowerArm','leftHand',
+  'rightShoulder','rightUpperArm','rightLowerArm','rightHand',
+  'leftUpperLeg','leftLowerLeg','leftFoot','leftToes',
+  'rightUpperLeg','rightLowerLeg','rightFoot','rightToes',
+  'leftEye','rightEye','jaw',
+  'leftThumbProximal','leftThumbIntermediate','leftThumbDistal',
+  'leftIndexProximal','leftIndexIntermediate','leftIndexDistal',
+  'leftMiddleProximal','leftMiddleIntermediate','leftMiddleDistal',
+  'leftRingProximal','leftRingIntermediate','leftRingDistal',
+  'leftLittleProximal','leftLittleIntermediate','leftLittleDistal',
+  'rightThumbProximal','rightThumbIntermediate','rightThumbDistal',
+  'rightIndexProximal','rightIndexIntermediate','rightIndexDistal',
+  'rightMiddleProximal','rightMiddleIntermediate','rightMiddleDistal',
+  'rightRingProximal','rightRingIntermediate','rightRingDistal',
+  'rightLittleProximal','rightLittleIntermediate','rightLittleDistal',
+];
+
+
+/* ========== UTIL ========== */
+const _FORWARD = new THREE.Vector3(0, 0, 1);
+const _Y_AXIS = new THREE.Vector3(0, 1, 0);
+
+function smoothstep(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
+
+// hips quat 里只取 yaw 分量(扔掉 pitch/roll),用于跨 clip 的朝向状态隔离。
+function extractYawQuat(q) {
+  const f = _FORWARD.clone().applyQuaternion(q);
+  f.y = 0;
+  if (f.lengthSq() < 1e-8) return new THREE.Quaternion();
+  f.normalize();
+  return new THREE.Quaternion().setFromAxisAngle(_Y_AXIS, Math.atan2(f.x, f.z));
+}
+
+function buildBoneNodeMap(vrm) {
+  const byBone = {}, byNodeName = {}, byNodeUuid = {};
+  for (const b of HUMANOID_BONES) {
+    const node = vrm.humanoid?.getNormalizedBoneNode(b) ?? vrm.humanoid?.getRawBoneNode?.(b);
+    if (node) { byBone[b] = node; byNodeName[node.name] = b; byNodeUuid[node.uuid] = b; }
+  }
+  return { byBone, byNodeName, byNodeUuid };
+}
+
+function findHipsTrack(clip, boneMap, channel) {
+  const hips = boneMap.byBone['hips'];
+  if (!hips) return null;
+  const want = [`${hips.name}.${channel}`, `${hips.uuid}.${channel}`];
+  for (const t of clip.tracks) if (want.includes(t.name)) return t;
+  for (const t of clip.tracks) if (t.name.endsWith('.' + channel) && t.name.includes(hips.name)) return t;
+  return null;
+}
+
+
+/* ========== CLIP SAMPLING ========== */
+function sampleClipToFrames(vrmAnim, vrm, anchorHips, anchorHipsQuat, doReanchor, boneMap, fps) {
+  const dt = 1 / fps;
+  const clip = createVRMAnimationClip(vrmAnim, vrm);
+
+  if (doReanchor) {
+    const hipsPosTrack = findHipsTrack(clip, boneMap, 'position');
+    const hipsRotTrack = anchorHipsQuat ? findHipsTrack(clip, boneMap, 'quaternion') : null;
+
+    // Q: clip 原朝向 -> 目标朝向
+    let Q = null;
+    if (hipsRotTrack && anchorHipsQuat) {
+      const v = hipsRotTrack.values;
+      const firstQ = new THREE.Quaternion(v[0], v[1], v[2], v[3]);
+      Q = anchorHipsQuat.clone().multiply(firstQ.clone().invert());
+    }
+
+    // 位置: new_p[i] = anchorHips + Q * (p[i] - p[0])
+    if (hipsPosTrack) {
+      const pv = hipsPosTrack.values;
+      const fx = pv[0], fy = pv[1], fz = pv[2];
+      const tmp = new THREE.Vector3();
+      for (let i = 0; i < pv.length; i += 3) {
+        tmp.set(pv[i] - fx, pv[i+1] - fy, pv[i+2] - fz);
+        if (Q) tmp.applyQuaternion(Q);
+        pv[i]   = anchorHips.x + tmp.x;
+        pv[i+1] = anchorHips.y + tmp.y;
+        pv[i+2] = anchorHips.z + tmp.z;
+      }
+    }
+
+    // 旋转: new_q[i] = Q * q[i]
+    if (hipsRotTrack && Q) {
+      const v = hipsRotTrack.values;
+      const tmp = new THREE.Quaternion();
+      for (let i = 0; i < v.length; i += 4) {
+        tmp.set(v[i], v[i+1], v[i+2], v[i+3]).premultiply(Q);
+        v[i] = tmp.x; v[i+1] = tmp.y; v[i+2] = tmp.z; v[i+3] = tmp.w;
+      }
+    }
+  }
+
+  const probes = [];
+  for (const t of clip.tracks) {
+    const lastDot = t.name.lastIndexOf('.');
+    if (lastDot < 0) continue;
+    const nodeRef = t.name.slice(0, lastDot);
+    const channel = t.name.slice(lastDot + 1);
+    const boneName = boneMap.byNodeName[nodeRef] ?? boneMap.byNodeUuid[nodeRef];
+    if (!boneName) continue;
+    if (channel === 'quaternion') probes.push({ boneName, kind: 'quat', interpolant: t.createInterpolant() });
+    else if (channel === 'position' && boneName === 'hips') probes.push({ boneName, kind: 'pos', interpolant: t.createInterpolant() });
+  }
+
+  const numFrames = Math.max(1, Math.floor(clip.duration * fps) + 1);
+  const frames = [];
+  for (let i = 0; i < numFrames; i++) {
+    const tSec = Math.min(i * dt, clip.duration);
+    const frame = { hipsPos: null, quats: {} };
+    for (const probe of probes) {
+      const buf = probe.interpolant.evaluate(tSec);
+      if (probe.kind === 'quat') frame.quats[probe.boneName] = new THREE.Quaternion(buf[0], buf[1], buf[2], buf[3]);
+      else if (probe.kind === 'pos') frame.hipsPos = new THREE.Vector3(buf[0], buf[1], buf[2]);
+    }
+    if (!frame.hipsPos) frame.hipsPos = anchorHips.clone();
+    frames.push(frame);
+  }
+  return { frames, endHips: frames[frames.length - 1].hipsPos.clone() };
+}
+
+
+/* ========== BLEND / APPLY ========== */
+function blendPoseAndDelta(P0, newFrame, newRef0, alpha) {
+  const newDelta = new THREE.Vector3().subVectors(newFrame.hipsPos, newRef0.hipsPos);
+  const out = {
+    hipsPos: P0.hipsPos.clone().addScaledVector(newDelta, alpha),
+    quats: {}
+  };
+  const bones = new Set([...Object.keys(P0.quats), ...Object.keys(newFrame.quats)]);
+  for (const b of bones) {
+    const qa = P0.quats[b], qb = newFrame.quats[b];
+    if (qa && qb) out.quats[b] = qa.clone().slerp(qb, alpha);
+    else if (qa) out.quats[b] = qa.clone();
+    else if (qb) out.quats[b] = qb.clone();
+  }
+  return out;
+}
+
+const PoseApplier = {
+  apply(frame, boneMap) {
+    if (frame.hipsPos && boneMap.byBone['hips']) boneMap.byBone['hips'].position.copy(frame.hipsPos);
+    for (const [boneName, q] of Object.entries(frame.quats)) {
+      const node = boneMap.byBone[boneName];
+      if (node) node.quaternion.copy(q);
+    }
+  }
+};
+
+
+/* ========== STREAM ENGINE ========== */
+class StreamEngine {
+  constructor(vrm, idleAnim, configOverrides = {}) {
+    this.vrm = vrm;
+    this.idleAnim = idleAnim;
+    this.config = { ...DEFAULT_CONFIG, ...configOverrides };
+    this.boneMap = buildBoneNodeMap(vrm);
+    this.buffer = [];
+    this.cursor = 0;
+    this.clipTagCounter = 0;
+    this.anchorHips = this._initialAnchor();
+    this.anchorHipsQuat = this._initialAnchorQuat();
+    this._acc = 0;
+    this._listeners = {};
+    this._lastEmittedTag = null;
+    this._lastEmittedSource = null;
+  }
+
+  _initialAnchor() {
+    const hips = this.boneMap.byBone['hips'];
+    if (hips) {
+      const wp = new THREE.Vector3();
+      hips.getWorldPosition(wp);
+      return new THREE.Vector3(0, wp.y, 0);
+    }
+    return new THREE.Vector3();
+  }
+
+  _initialAnchorQuat() {
+    const hips = this.boneMap.byBone['hips'];
+    return hips ? extractYawQuat(hips.quaternion) : new THREE.Quaternion();
+  }
+
+  get lookahead() { return this.buffer.length - this.cursor; }
+  currentFrame() { return this.buffer[this.cursor]?.frame ?? null; }
+
+  on(event, cb) {
+    (this._listeners[event] ||= []).push(cb);
+    return () => {
+      const arr = this._listeners[event];
+      if (arr) this._listeners[event] = arr.filter(x => x !== cb);
+    };
+  }
+  _emit(event, ...args) {
+    (this._listeners[event] || []).forEach(cb => { try { cb(...args); } catch (e) { console.error(e); } });
+  }
+
+  tick(dtSeconds) {
+    const dt = 1 / this.config.fps;
+    // 失焦切回时 _acc 不爆冲,最多积压 6 帧
+    this._acc = Math.min(this._acc + dtSeconds, dt * 6);
+    let stepped = 0;
+    while (this._acc >= dt && stepped < 4) {
+      this._acc -= dt;
+      this._advance();
+      this._topUp();
+      stepped += 1;
+    }
+    if (stepped === 0 && this.buffer.length === 0) this._topUp();
+    this._emitSegmentEventsIfNeeded();
+    return this.currentFrame();
+  }
+
+  schedule(vrmAnim, opts = {}) {
+    const d = opts.scheduleDelayFrames ?? this.config.scheduleDelayFrames;
+    const m = opts.transitionFrames    ?? this.config.transitionFrames;
+    while (this.lookahead < d + m + 1) this._appendIdleSegment();
+
+    const tStart = this.cursor + d;
+    const P0 = this.buffer[tStart].frame;
+    const P0Yaw = P0.quats['hips'] ? extractYawQuat(P0.quats['hips']) : new THREE.Quaternion();
+
+    const { frames: newFrames } = sampleClipToFrames(
+      vrmAnim, this.vrm, P0.hipsPos.clone(), P0Yaw,
+      this.config.reanchorHips, this.boneMap, this.config.fps
+    );
+    while (newFrames.length < m) newFrames.push(newFrames[newFrames.length - 1]);
+
+    this.clipTagCounter += 1;
+    const clipTag = this.clipTagCounter;
+
+    for (let i = 0; i < m; i++) {
+      const a = smoothstep(i / m);
+      const blended = blendPoseAndDelta(P0, newFrames[i], newFrames[0], a);
+      this.buffer[tStart + i] = { frame: blended, source: 'transition', clipTag };
+    }
+    this.buffer.length = tStart + m;
+    for (const f of newFrames.slice(m)) this.buffer.push({ frame: f, source: 'action', clipTag });
+
+    this.anchorHips = newFrames[newFrames.length - 1].hipsPos.clone();
+    const endQ = newFrames[newFrames.length - 1].quats['hips'];
+    if (endQ) this.anchorHipsQuat = extractYawQuat(endQ);
+
+    const info = {
+      scheduledAtCursor: this.cursor,
+      clipTag,
+      transitionStart: tStart,
+      transitionEnd: tStart + m,
+      actionEnd: this.buffer.length,
+    };
+    this._emit('scheduleAccepted', info);
+    return info;
+  }
+
+  setIdle(vrmAnim) { this.idleAnim = vrmAnim; }
+
+  reset() {
+    this.buffer = [];
+    this.cursor = 0;
+    this.clipTagCounter = 0;
+    this.anchorHips = this._initialAnchor();
+    this.anchorHipsQuat = this._initialAnchorQuat();
+    this._lastEmittedTag = null;
+    this._lastEmittedSource = null;
+    this._topUp();
+  }
+
+  inspect() {
+    const N = this.config.lookaheadFrames;
+    const windowFrames = [];
+    for (let i = 0; i < N; i++) {
+      const idx = this.cursor + i;
+      if (idx >= this.buffer.length) break;
+      const cell = this.buffer[idx];
+      windowFrames.push({ source: cell.source, clipTag: cell.clipTag ?? null });
+    }
+    return {
+      cursor: this.cursor,
+      lookahead: this.lookahead,
+      totalBuffered: this.buffer.length,
+      windowFrames,
+      config: { ...this.config },
+    };
+  }
+
+  _advance() {
+    this.cursor += 1;
+    if (this.cursor > 60) {
+      const drop = this.cursor - 30;
+      this.buffer.splice(0, drop);
+      this.cursor -= drop;
+    }
+  }
+
+  _topUp() {
+    const N = this.config.lookaheadFrames;
+    let guard = 0;
+    while (this.lookahead < N && guard < 32) {
+      this._appendIdleSegment();
+      guard += 1;
+    }
+    if (guard >= 32) console.warn('[engine] topUp guard hit');
+  }
+
+  // 关键: idle 接 idle 时不做 transition; 只有从 action/transition 回 idle 才过渡。
+  // 避免每次 top-up 都引入不必要的 smoothstep blend 路径,消除累积抖动。
+  _appendIdleSegment() {
+    const m = this.config.transitionFrames;
+    this.clipTagCounter += 1;
+    const idleTag = this.clipTagCounter;
+
+    // 冷启动
+    if (this.buffer.length === 0) {
+      const { frames, endHips } = sampleClipToFrames(
+        this.idleAnim, this.vrm, this.anchorHips.clone(), this.anchorHipsQuat.clone(),
+        this.config.reanchorHips, this.boneMap, this.config.fps
+      );
+      for (const f of frames) this.buffer.push({ frame: f, source: 'idle', clipTag: idleTag });
+      this.anchorHips = endHips;
+      const lastQ = frames[frames.length - 1].quats['hips'];
+      if (lastQ) this.anchorHipsQuat = extractYawQuat(lastQ);
+      this._emit('fallback', idleTag);
+      return;
+    }
+
+    const P_last = this.buffer[this.buffer.length - 1].frame;
+    const P_lastYaw = P_last.quats['hips'] ? extractYawQuat(P_last.quats['hips']) : new THREE.Quaternion();
+    const { frames: idleFrames, endHips } = sampleClipToFrames(
+      this.idleAnim, this.vrm, P_last.hipsPos.clone(), P_lastYaw,
+      this.config.reanchorHips, this.boneMap, this.config.fps
+    );
+
+    const prevSource = this.buffer[this.buffer.length - 1].source;
+    if (prevSource === 'idle') {
+      // 连续 idle: 直接拼接,无 transition
+      for (const f of idleFrames) {
+        this.buffer.push({ frame: f, source: 'idle', clipTag: idleTag });
+      }
+    } else {
+      // 从 action/transition 回 idle: 保留过渡
+      const mIdle = Math.min(m, idleFrames.length);
+      for (let i = 0; i < mIdle; i++) {
+        const a = smoothstep(i / mIdle);
+        const blended = blendPoseAndDelta(P_last, idleFrames[i], idleFrames[0], a);
+        this.buffer.push({ frame: blended, source: 'transition', clipTag: idleTag });
+      }
+      for (const f of idleFrames.slice(mIdle)) {
+        this.buffer.push({ frame: f, source: 'idle', clipTag: idleTag });
+      }
+    }
+
+    this.anchorHips = endHips;
+    const lastQ = idleFrames[idleFrames.length - 1].quats['hips'];
+    if (lastQ) this.anchorHipsQuat = extractYawQuat(lastQ);
+    this._emit('fallback', idleTag);
+  }
+
+  _emitSegmentEventsIfNeeded() {
+    const cur = this.buffer[this.cursor];
+    if (!cur) return;
+    const sig = `${cur.source}#${cur.clipTag}`;
+    const prevSig = this._lastEmittedTag === null ? null : `${this._lastEmittedSource}#${this._lastEmittedTag}`;
+    if (sig === prevSig) return;
+    if (prevSig !== null) this._emit('segmentEnd', this._lastEmittedTag, this._lastEmittedSource);
+    this._emit('segmentStart', cur.clipTag, cur.source);
+    this._lastEmittedTag = cur.clipTag;
+    this._lastEmittedSource = cur.source;
+  }
+}
+
+
+/* ========== EXPRESSION CONTROLLER ==========
+ * 管理 VRM 表情:
+ *   - 自动眨眼: 周期性触发,与 action/idle 状态无关
+ *   - happy / relaxed 等"做动作时的微笑"已禁用; onSegmentStart 不再修改表情 target。
+ *   - 仍保留 happy/relaxed 的 lerp 占位以便未来按需启用; 默认 target 恒为 0。
+ */
+class ExpressionController {
+  constructor(vrm, opts = {}) {
+    this.vrm = vrm;
+    this.em = vrm.expressionManager || null;
+    // 平滑系数(保留,目前 target 恒 0,实际无可见效果)
+    this.tau = opts.tau ?? 0.12;
+    this.happyTarget = 0.0;
+    this.relaxedTarget = 0.0;
+    this.happyCurrent = 0.0;
+    this.relaxedCurrent = 0.0;
+    // 眨眼独立脉冲
+    this.blinkValue = 0.0;
+    this.idleBlinkEnabled = true;
+    this._blinkTimer = 0;
+    this._scheduleNextBlink();
+  }
+
+  _scheduleNextBlink() {
+    // 下一次眨眼的等待秒数: 2.5 ~ 5.0s
+    this._blinkTimer = 2.5 + Math.random() * 2.5;
+    this._blinkPhase = 'wait'; // wait -> close -> open -> wait
+    this._blinkPhaseT = 0;
+  }
+
+  // source: 'idle' | 'action' | 'transition'
+  // 已禁用: 不再因动作切换而改变面部表情。眨眼独立运作,不受此函数影响。
+  onSegmentStart(source) {
+    // intentionally no-op
+  }
+
+  update(dt) {
+    if (!this.em) return;
+
+    // smile 强度向 target lerp (target 恒 0, 因此实际维持 0; 保留代码以便未来恢复)
+    const k = 1 - Math.exp(-dt / this.tau);
+    this.happyCurrent   += (this.happyTarget   - this.happyCurrent)   * k;
+    this.relaxedCurrent += (this.relaxedTarget - this.relaxedCurrent) * k;
+
+    // 自动眨眼: 状态机
+    if (this.idleBlinkEnabled) {
+      this._blinkTimer -= dt;
+      if (this._blinkPhase === 'wait' && this._blinkTimer <= 0) {
+        this._blinkPhase = 'close'; this._blinkPhaseT = 0;
+      }
+      if (this._blinkPhase === 'close') {
+        this._blinkPhaseT += dt;
+        const T = 0.08; // 80ms 闭眼
+        this.blinkValue = Math.min(1, this._blinkPhaseT / T);
+        if (this._blinkPhaseT >= T) { this._blinkPhase = 'open'; this._blinkPhaseT = 0; }
+      } else if (this._blinkPhase === 'open') {
+        this._blinkPhaseT += dt;
+        const T = 0.12; // 120ms 睁眼
+        this.blinkValue = Math.max(0, 1 - this._blinkPhaseT / T);
+        if (this._blinkPhaseT >= T) { this.blinkValue = 0; this._scheduleNextBlink(); }
+      } else {
+        this.blinkValue = 0;
+      }
+    } else {
+      this.blinkValue = 0;
+    }
+
+    // 写入 VRM expression manager
+    this._setSafe('happy',   this.happyCurrent);
+    this._setSafe('relaxed', this.relaxedCurrent);
+    this._setSafe('blink',   this.blinkValue);
+  }
+
+  _setSafe(name, v) {
+    try { this.em.setValue(name, v); } catch (_) { /* 该表情不存在则忽略 */ }
+  }
+}
+
+
+/* ========== LOOKAT CONTROLLER ==========
+ * 一个隐形 Object3D 作为眼神 target。
+ * - 鼠标移动: target 朝鼠标对应 3D 点 lerp (沿 z=0 附近平面)
+ * - 鼠标离开/静止过久: target 慢慢回到相机方向
+ * - 鼠标位置会被夹到一个椭球范围内,避免眼球翻白
+ */
+class LookAtController {
+  constructor(vrm, camera, opts = {}) {
+    this.vrm = vrm;
+    this.camera = camera;
+    this.target = new THREE.Object3D();
+    this.target.position.set(0, 1.4, 1.0); // 默认在头部正前方
+    // 用一个内部"目标位置",当前 target 朝它 lerp
+    this._desired = this.target.position.clone();
+    this._fallbackDesired = this.target.position.clone();
+    this.tau = opts.tau ?? 0.15;
+    // 鼠标离开/静止多久之后 fallback 到相机方向
+    this.idleTimeout = opts.idleTimeout ?? 2.0;
+    this._idleT = 0;
+    this._mouseActive = false;
+
+    if (vrm.lookAt) {
+      vrm.lookAt.target = this.target;
+      vrm.lookAt.autoUpdate = true;
+    }
+  }
+
+  // (ndcX, ndcY): -1..1 标准化设备坐标
+  setMouseNDC(ndcX, ndcY) {
+    // 在头前方 ~1m 的虚拟平面上找一个点
+    // 头位置近似取 vrm 头骨节点的世界位置;若失败用 (0, 1.4, 0)
+    const head = this.vrm.humanoid?.getNormalizedBoneNode?.('head');
+    const headPos = new THREE.Vector3(0, 1.4, 0);
+    if (head) head.getWorldPosition(headPos);
+
+    // 视线平面: 距头 1.0m 朝相机方向
+    const camDir = new THREE.Vector3().subVectors(this.camera.position, headPos).normalize();
+    const planePoint = headPos.clone().addScaledVector(camDir, 1.0);
+
+    // 把 NDC 映射到平面上的偏移: 水平 ±0.6m, 垂直 ±0.4m
+    const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, camDir).normalize();
+    // 夹紧避免眼睛翻
+    const cx = Math.max(-1, Math.min(1, ndcX));
+    const cy = Math.max(-1, Math.min(1, ndcY));
+    this._desired = planePoint.clone()
+      .addScaledVector(right, cx * 0.6)
+      .addScaledVector(up,    cy * 0.4);
+    this._mouseActive = true;
+    this._idleT = 0;
+  }
+
+  setMouseLost() {
+    this._mouseActive = false;
+  }
+
+  _computeFallback() {
+    // fallback: 看相机
+    const head = this.vrm.humanoid?.getNormalizedBoneNode?.('head');
+    const headPos = new THREE.Vector3(0, 1.4, 0);
+    if (head) head.getWorldPosition(headPos);
+    const camDir = new THREE.Vector3().subVectors(this.camera.position, headPos).normalize();
+    return headPos.clone().addScaledVector(camDir, 1.0);
+  }
+
+  update(dt) {
+    // 鼠标长时间不动 -> 切到 fallback
+    if (this._mouseActive) {
+      this._idleT += dt;
+      if (this._idleT > this.idleTimeout) this._mouseActive = false;
+    }
+    const desired = this._mouseActive ? this._desired : this._computeFallback();
+
+    const k = 1 - Math.exp(-dt / this.tau);
+    this.target.position.lerp(desired, k);
+  }
+}
+
+
+/* ========== RENDERER ========== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202028);
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 1.2, 3);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0); controls.update();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+dirLight.position.set(1, 2, 1); scene.add(dirLight);
+scene.add(new THREE.GridHelper(4, 8, 0x444444, 0x333333));
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+let engine = null, vrm = null, boneMap = null;
+let expressionCtl = null, lookAtCtl = null;
+const clock = new THREE.Clock();
+
+function rafTick() {
+  requestAnimationFrame(rafTick);
+  const dt = clock.getDelta();
+  if (engine) {
+    engine.config.lookaheadFrames     = parseInt(document.getElementById('lookahead').value, 10);
+    engine.config.transitionFrames    = parseInt(document.getElementById('transFrames').value, 10);
+    engine.config.scheduleDelayFrames = parseInt(document.getElementById('delayFrames').value, 10);
+    engine.config.reanchorHips        = document.getElementById('reanchor').checked;
+    const frame = engine.tick(dt);
+    if (frame) PoseApplier.apply(frame, boneMap);
+    drawTimeline();
+  }
+  if (expressionCtl) expressionCtl.update(dt);
+  if (lookAtCtl)     lookAtCtl.update(dt);
+  if (vrm) vrm.update(dt);
+  renderer.render(scene, camera);
+}
+
+// 切回页面时,丢弃累积时间,避免补帧爆冲
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && engine) {
+    engine._acc = 0;
+    clock.getDelta();
+  }
+});
+
+
+/* ========== UI ========== */
+const statusEl = document.getElementById('status');
+function setStatus(msg) { statusEl.textContent = msg; }
+
+const tlCanvas = document.getElementById('timelineCanvas');
+const tlCtx = tlCanvas.getContext('2d');
+function resizeTimeline() {
+  const r = tlCanvas.getBoundingClientRect();
+  tlCanvas.width = Math.floor(r.width * devicePixelRatio);
+  tlCanvas.height = Math.floor(r.height * devicePixelRatio);
+}
+resizeTimeline();
+addEventListener('resize', resizeTimeline);
+
+const COLORS = { idle: '#3a6', transition: '#fb4' };
+function actionColor(tag) { return `hsl(${(200 + (tag ?? 0) * 47) % 360}, 70%, 55%)`; }
+
+function drawTimeline() {
+  if (!engine) return;
+  const snap = engine.inspect();
+  const W = tlCanvas.width, H = tlCanvas.height;
+  tlCtx.clearRect(0, 0, W, H);
+  const total = snap.config.lookaheadFrames;
+  const d = snap.config.scheduleDelayFrames;
+  const m = snap.config.transitionFrames;
+  const fps = snap.config.fps;
+  for (let i = 0; i < total && i < snap.windowFrames.length; i++) {
+    const cell = snap.windowFrames[i];
+    let color;
+    if (cell.source === 'idle') color = COLORS.idle;
+    else if (cell.source === 'transition') color = COLORS.transition;
+    else color = actionColor(cell.clipTag);
+    tlCtx.fillStyle = color;
+    tlCtx.fillRect((i/total)*W, 0, (W/total)+1, H);
+  }
+  tlCtx.fillStyle = 'rgba(255,255,255,0.22)';
+  tlCtx.fillRect(0, 0, (d/total)*W, H);
+  tlCtx.fillStyle = '#fff'; tlCtx.fillRect(0, 0, 2, H);
+  tlCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+  tlCtx.setLineDash([2,3]);
+  tlCtx.beginPath();
+  const xd = (d/total)*W; tlCtx.moveTo(xd,0); tlCtx.lineTo(xd,H);
+  const xdm = ((d+m)/total)*W; tlCtx.moveTo(xdm,0); tlCtx.lineTo(xdm,H);
+  tlCtx.stroke();
+  tlCtx.setLineDash([]);
+  document.getElementById('tlMid').textContent =
+    `d=${d}f (${(d*1000/fps).toFixed(0)}ms) | d+m=${d+m}f (${((d+m)*1000/fps).toFixed(0)}ms)`;
+  document.getElementById('tlRight').textContent = `t+${total} (${(total/fps).toFixed(1)}s)`;
+
+  const runs = [];
+  for (const cell of snap.windowFrames) {
+    const key = cell.source + (cell.clipTag != null ? `#${cell.clipTag}` : '');
+    if (runs.length && runs[runs.length-1].key === key) runs[runs.length-1].len++;
+    else runs.push({ key, len: 1 });
+  }
+  document.getElementById('composition').textContent =
+    `${runs.map(r => `${r.key}×${r.len}`).join(' | ')}  (lookahead=${snap.lookahead})`;
+}
+
+
+/* ========== LOADERS / INIT ========== */
+const gltfLoader = new GLTFLoader();
+gltfLoader.register((p) => new VRMLoaderPlugin(p));
+gltfLoader.register((p) => new VRMAnimationLoaderPlugin(p));
+
+async function loadVRM(url) {
+  const gltf = await gltfLoader.loadAsync(url);
+  const v = gltf.userData.vrm;
+  if (!v) throw new Error('No VRM in ' + url);
+  VRMUtils.removeUnnecessaryVertices?.(gltf.scene);
+  VRMUtils.removeUnnecessaryJoints?.(gltf.scene);
+  VRMUtils.rotateVRM0?.(v);
+  return v;
+}
+async function loadVRMFromBuffer(arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    gltfLoader.parse(arrayBuffer, '', (gltf) => {
+      const v = gltf.userData.vrm;
+      if (!v) { reject(new Error('No VRM in buffer')); return; }
+      VRMUtils.removeUnnecessaryVertices?.(gltf.scene);
+      VRMUtils.removeUnnecessaryJoints?.(gltf.scene);
+      VRMUtils.rotateVRM0?.(v);
+      resolve(v);
+    }, reject);
+  });
+}
+async function loadVRMA(url) {
+  const gltf = await gltfLoader.loadAsync(url);
+  const a = gltf.userData.vrmAnimations;
+  if (!a?.length) throw new Error('No VRMA in ' + url);
+  return a[0];
+}
+async function loadVRMAFromBuffer(arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    gltfLoader.parse(arrayBuffer, '', (gltf) => {
+      const a = gltf.userData.vrmAnimations;
+      if (!a?.length) reject(new Error('No VRMA in buffer'));
+      else resolve(a[0]);
+    }, reject);
+  });
+}
+
+let idleAnim = null, anim0 = null, anim1 = null;
+
+async function init() {
+  try {
+    setStatus('Loading VRM...');
+    vrm = await loadVRM('/assets/test0_.vrm');
+    scene.add(vrm.scene);
+    boneMap = buildBoneNodeMap(vrm);
+
+    setStatus('Loading idle.vrma...');
+    idleAnim = await loadVRMA('/assets/idle.vrma');
+
+    try { anim0 = await loadVRMA('/assets/0.vrma'); } catch (e) { console.warn('0.vrma:', e.message); }
+    try { anim1 = await loadVRMA('/assets/1.vrma'); } catch (e) { console.warn('1.vrma:', e.message); }
+
+    engine = new StreamEngine(vrm, idleAnim, {
+      lookaheadFrames: parseInt(document.getElementById('lookahead').value, 10),
+      transitionFrames: parseInt(document.getElementById('transFrames').value, 10),
+      scheduleDelayFrames: parseInt(document.getElementById('delayFrames').value, 10),
+      reanchorHips: document.getElementById('reanchor').checked,
+    });
+
+    // 表情 + 眼神
+    expressionCtl = new ExpressionController(vrm);
+    lookAtCtl     = new LookAtController(vrm, camera);
+    scene.add(lookAtCtl.target); // 加进 scene 才会有 world matrix 更新
+
+    engine.on('scheduleAccepted', (info) => console.log('[engine] scheduleAccepted', info));
+    engine.on('segmentStart',     (tag, source) => {
+      console.log('[engine] segmentStart', source, '#'+tag);
+      expressionCtl.onSegmentStart(source); // no-op, 保留连接以便日后扩展
+    });
+    engine.on('segmentEnd',       (tag, source) => console.log('[engine] segmentEnd',   source, '#'+tag));
+
+    engine.tick(0);
+    setStatus(`Ready. files: idle=${!!idleAnim} 0=${!!anim0} 1=${!!anim1}`);
+  } catch (e) {
+    console.error(e);
+    setStatus('Init error: ' + e.message);
+  }
+}
+
+/* ========== HOT-SWAP VRM MODEL ========== */
+// 用外部拖入的 .vrm 替换当前角色,保留 engine 配置 / idle 动画 / 已调度队列。
+async function replaceVRM(newVrm, label) {
+  // 1. 摘掉旧模型并释放 GPU 资源
+  if (vrm) {
+    scene.remove(vrm.scene);
+    VRMUtils.deepDispose?.(vrm.scene);
+  }
+
+  // 2. 挂上新模型
+  vrm = newVrm;
+  scene.add(vrm.scene);
+  boneMap = buildBoneNodeMap(vrm);
+
+  // 3. 用当前 UI 配置重建 engine(沿用 idle 动画)。
+  //    新建 vrm 后骨骼节点全部失效,必须重建 engine 与控制器。
+  engine = new StreamEngine(vrm, idleAnim, {
+    lookaheadFrames: parseInt(document.getElementById('lookahead').value, 10),
+    transitionFrames: parseInt(document.getElementById('transFrames').value, 10),
+    scheduleDelayFrames: parseInt(document.getElementById('delayFrames').value, 10),
+    reanchorHips: document.getElementById('reanchor').checked,
+  });
+  engine.on('scheduleAccepted', (info) => console.log('[engine] scheduleAccepted', info));
+  engine.on('segmentStart', (tag, source) => {
+    console.log('[engine] segmentStart', source, '#'+tag);
+    expressionCtl.onSegmentStart(source); // no-op
+  });
+  engine.on('segmentEnd', (tag, source) => console.log('[engine] segmentEnd', source, '#'+tag));
+
+  // 4. 重建表情 / 眼神控制器
+  expressionCtl = new ExpressionController(vrm);
+  if (lookAtCtl) scene.remove(lookAtCtl.target);
+  lookAtCtl = new LookAtController(vrm, camera);
+  scene.add(lookAtCtl.target);
+
+  engine.tick(0);
+  setStatus(`Replaced model → ${label}`);
+}
+
+
+/* ========== BUTTONS ========== */
+function scheduleAnim(anim, label) {
+  if (!engine || !anim) { setStatus(`${label} not available`); return null; }
+  const info = engine.schedule(anim);
+  setStatus(`Scheduled ${label} #${info.clipTag}`);
+  return info;
+}
+document.getElementById('schedule0').onclick    = () => scheduleAnim(anim0, '0.vrma');
+document.getElementById('schedule1').onclick    = () => scheduleAnim(anim1, '1.vrma');
+document.getElementById('scheduleIdle').onclick = () => scheduleAnim(idleAnim, 'idle.vrma');
+
+document.getElementById('scheduleSeq').onclick = () => {
+  if (!engine || !anim0 || !anim1) { setStatus('need both 0.vrma and 1.vrma'); return; }
+  const info0 = engine.schedule(anim0);
+  setStatus(`Scheduled 0.vrma #${info0.clipTag}.`);
+  const off = engine.on('segmentEnd', (tag, source) => {
+    if (tag === info0.clipTag && source === 'action') {
+      off();
+      const info1 = engine.schedule(anim1);
+      setStatus(`0 ended → scheduled 1.vrma #${info1.clipTag}`);
+    }
+  });
+};
+
+document.getElementById('resetPos').onclick = () => {
+  if (!engine) return;
+  engine.reset();
+  const f = engine.currentFrame();
+  if (f) PoseApplier.apply(f, boneMap);
+  setStatus('Reset.');
+};
+
+
+/* ========== MOUSE → LOOKAT ========== */
+addEventListener('mousemove', (e) => {
+  if (!lookAtCtl) return;
+  const ndcX =  (e.clientX / innerWidth)  * 2 - 1;
+  const ndcY = -(e.clientY / innerHeight) * 2 + 1;
+  lookAtCtl.setMouseNDC(ndcX, ndcY);
+});
+addEventListener('mouseleave', () => { if (lookAtCtl) lookAtCtl.setMouseLost(); });
+addEventListener('blur',       () => { if (lookAtCtl) lookAtCtl.setMouseLost(); });
+
+
+/* ========== DRAG-DROP ========== */
+const dropOverlay = document.getElementById('dropOverlay');
+let dragDepth = 0;
+addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; dropOverlay.classList.add('active'); });
+addEventListener('dragleave', (e) => {
+  e.preventDefault(); dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dropOverlay.classList.remove('active');
+});
+addEventListener('dragover', (e) => { e.preventDefault(); });
+addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragDepth = 0; dropOverlay.classList.remove('active');
+  if (!engine) return;
+
+  const dropped = [...(e.dataTransfer?.files ?? [])];
+  // .vrm 在 .vrma 之前判断,避免 endsWith('.vrm') 误命中 .vrma
+  const vrmFiles  = dropped.filter(f => /\.vrm$/i.test(f.name));
+  const vrmaFiles = dropped.filter(f => /\.vrma$/i.test(f.name));
+
+  if (!vrmFiles.length && !vrmaFiles.length) {
+    setStatus('No .vrm / .vrma in drop'); return;
+  }
+
+  // ---- 1. 替换模型(只取最后一个 .vrm)----
+  if (vrmFiles.length) {
+    const file = vrmFiles[vrmFiles.length - 1];
+    if (vrmFiles.length > 1) console.warn('Multiple .vrm dropped, using last:', file.name);
+    setStatus(`Loading model ${file.name}...`);
+    try {
+      const buf = await file.arrayBuffer();
+      const newVrm = await loadVRMFromBuffer(buf);
+      await replaceVRM(newVrm, file.name);
+    } catch (err) {
+      console.error('Failed to load VRM:', file.name, err);
+      setStatus(`Failed: ${file.name}: ${err.message}`);
+      return;
+    }
+  }
+
+  // ---- 2. 调度动画 ----
+  if (!vrmaFiles.length) return;
+  setStatus(`Queueing ${vrmaFiles.length} .vrma file(s)...`);
+  for (const file of vrmaFiles) {
+    try {
+      const buf = await file.arrayBuffer();
+      const anim = await loadVRMAFromBuffer(buf);
+      await new Promise((resolve) => {
+        const info = engine.schedule(anim);
+        setStatus(`Drop: scheduled ${file.name} #${info.clipTag}`);
+        const off = engine.on('segmentEnd', (tag, source) => {
+          if (tag === info.clipTag && source === 'action') { off(); resolve(); }
+        });
+      });
+    } catch (err) {
+      console.error('Failed:', file.name, err);
+      setStatus(`Failed: ${file.name}: ${err.message}`);
+    }
+  }
+  setStatus(`Done.`);
+});
+
+
+/* ========== PROMPT → t2m → schedule ========== */
+const promptInput    = document.getElementById('promptInput');
+const promptDuration = document.getElementById('promptDuration');
+const promptSend     = document.getElementById('promptSend');
+const promptStatus   = document.getElementById('promptStatus');
+
+function setPromptStatus(msg, kind) {
+  promptStatus.textContent = msg;
+  promptStatus.className = kind || '';
+}
+
+async function generateFromPrompt() {
+  const prompt = promptInput.value.trim();
+  if (!prompt) { setPromptStatus('empty prompt', 'err'); return; }
+  if (!engine) { setPromptStatus('engine not ready', 'err'); return; }
+
+  const duration = parseFloat(promptDuration.value) || 3.0;
+  promptSend.disabled = true;
+  promptInput.disabled = true;
+  setPromptStatus('generating...', '');
+  const t0 = performance.now();
+
+  try {
+    const resp = await fetch('/t2m', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, duration }),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${errText}`);
+    }
+    const buf = await resp.arrayBuffer();
+    const wall = (performance.now() - t0).toFixed(0);
+    const anim = await loadVRMAFromBuffer(buf);
+    const info = engine.schedule(anim);
+    setPromptStatus(`✓ ${wall}ms (#${info.clipTag})`, 'ok');
+    setStatus(`t2m: scheduled #${info.clipTag} from ${prompt.slice(0, 60)}`);
+  } catch (e) {
+    console.error(e);
+    setPromptStatus(`✗ ${e.message}`, 'err');
+  } finally {
+    promptSend.disabled = false;
+    promptInput.disabled = false;
+    promptInput.focus();
+  }
+}
+
+promptSend.onclick = generateFromPrompt;
+promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generateFromPrompt(); }
+});
+
+
+/* ========== BOOT ========== */
+rafTick();
+init();
+</script>
+</body>
+</html>

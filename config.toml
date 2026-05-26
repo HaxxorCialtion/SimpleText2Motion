@@ -1,0 +1,43 @@
+# SimpleT2M unified configuration.
+# All relative paths are resolved against THIS file's directory.
+
+[paths]
+llama_model    = "models/qwen3-4b-v2-trim6-q4_k_m.gguf"
+t2m_onnx_dir   = "models/SimpleT2M"
+logs_dir       = "logs"
+
+[fused_server]
+# On Linux/Mac this is built by hand inside llama.cpp/; on Windows it's
+# produced by the root CMake build into build/Release/.
+binary           = "llama.cpp/fused_server"
+port_hidden      = 8421
+port_simpletool  = 8422
+hidden_layer     = 5
+n_ctx            = 2048
+n_gpu_layers     = 999
+max_cold_tokens  = -1                     # -1 = auto (n_ctx - 256)
+debug_cache      = false
+
+[t2m_infer]
+binary           = "build/t2m_infer"
+server_port      = 8423
+ep               = "auto"                 # auto | cuda | cpu
+num_steps        = 4
+fused_host       = "127.0.0.1"
+motion_to_vrma_bin = "" 
+
+[bench]
+warmup_runs      = 3
+timed_runs       = 20
+duration         = 3.0
+seed             = 42
+prompts = [
+    "A person walks forward.",
+    "A person waves their right hand.",
+    "A person jumps in place.",
+    "A person turns left and looks around..",
+    "A person sits down slowly.",
+]
+
+[run_server]
+port = 8765

@@ -1,0 +1,6 @@
+prompt: Walk over to the chair, slowly.
+shape:  (90, 135)
+dtype:  float32
+abs_max: 1.1620
+mean:    0.3153
+std:     0.4863
