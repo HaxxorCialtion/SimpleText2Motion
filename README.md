@@ -63,6 +63,7 @@ extension and integration.
                      ▼
              ┌───────────────┐         ┌──────────────────┐
              │  fused_server │ ──────▶ │  SimpleTool-4B   │
+             │               │         │   or trim6-q4    │
              │   port 8421   │ hidden  │  via llama.cpp   │
              └───────┬───────┘         └──────────────────┘
                      │ (N, 2560) float32
