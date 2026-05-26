@@ -6,8 +6,18 @@
 
 [中文 README](README_ZH.md) · [License](#license) · [ModelScope mirror](#model-download)
 
-![demo](./assets/tmp.png)
+<table>
+<tr>
+<td width="50%">
+  <img src="./assets/tmp.png" alt="demo" />
+</td>
+<td width="50%">
 
+https://github.com/user-attachments/assets/31aa4018-7225-46eb-a469-6097b5e64802
+
+</td>
+</tr>
+</table>
 ---
 
 ## Overview

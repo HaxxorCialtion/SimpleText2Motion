@@ -6,7 +6,18 @@
 
 [English README](README.md) · [许可协议](#许可协议) · [ModelScope 镜像](#模型下载)
 
-![demo](./assets/tmp.png)
+<table>
+<tr>
+<td width="50%">
+  <img src="./assets/tmp.png" alt="demo" />
+</td>
+<td width="50%">
+
+https://github.com/user-attachments/assets/31aa4018-7225-46eb-a469-6097b5e64802
+
+</td>
+</tr>
+</table>
 
 ---
 
